@@ -2,6 +2,69 @@
 #
 # initial version: YR 25/03/2009
 
+# Multivariate normal random number generation using Cholesky decomposition
+# Replacement for MASS::mvrnorm for better cross-machine reproducibility
+# See: https://blog.djnavarro.net/posts/2025-05-18_multivariate-normal-sampling-floating-point/
+#
+# The issue with MASS::mvrnorm is that it uses eigendecomposition, which can
+# produce different eigenvector signs on different machines due to floating-point
+# differences. This leads to irreproducible results across machines even with
+# the same random seed. Using Cholesky decomposition avoids this issue because
+# the Cholesky factor is unique.
+#
+# Uses pivoted Cholesky (similar to mvtnorm) for better numerical stability.
+lav_mvrnorm <- function(n = 1, mu, Sigma, tol = 1e-06, empirical = FALSE) {
+  p <- length(mu)
+
+  if (!all(dim(Sigma) == c(p, p))) {
+    lav_msg_stop(gettext("incompatible arguments in lav_mvrnorm"))
+  }
+
+  # Check positive semi-definiteness
+  eS <- eigen(Sigma, symmetric = TRUE, only.values = TRUE)
+  ev <- eS$values
+  if (!all(ev >= -tol * abs(ev[1L]))) {
+    lav_msg_stop(gettext("'Sigma' is not positive definite in lav_mvrnorm"))
+  }
+
+  # Compute Cholesky factor with pivoting for numerical stability
+  R <- chol(Sigma, pivot = TRUE)
+  R <- R[, order(attr(R, "pivot")), drop = FALSE]
+
+  if (empirical) {
+    # Generate standard normal, then apply empirical transformation
+    X <- matrix(stats::rnorm(p * n), n, p)
+    X <- scale(X, center = TRUE, scale = FALSE)   # center
+    X <- X %*% svd(X, nu = 0)$v                   # orthogonalize
+    X <- scale(X, center = FALSE, scale = TRUE)   # unit variance
+
+    # Transform by Cholesky factor
+    X <- sweep(X %*% R, 2, mu, "+")
+
+    # Handle names like MASS does
+    nm <- names(mu)
+    if (is.null(nm) && !is.null(dn <- dimnames(Sigma))) {
+      nm <- dn[[1L]]
+    }
+    colnames(X) <- nm
+
+    if (n == 1) drop(X) else X
+  } else {
+    # Generate samples using Cholesky factor
+    X <- matrix(stats::rnorm(n * p), nrow = n) %*% R
+    X <- sweep(X, 2, mu, "+")
+
+    # Handle names
+    nm <- names(mu)
+    if (is.null(nm) && !is.null(dn <- dimnames(Sigma))) {
+      nm <- dn[[1L]]
+    }
+    colnames(X) <- nm
+
+    if (n == 1) drop(X) else X
+  }
+}
+
 # outlier detection based on inter-quartile range
 # same as boxplot.stats, but returning the indices (not the values)
 lav_sample_outlier_idx <- function (x, coef = 1.5) {
