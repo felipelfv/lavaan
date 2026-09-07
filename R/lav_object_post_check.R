@@ -34,17 +34,20 @@ lav_object_post_check <- function(object) {
 
   # 2. is cov.lv (PSI) positive definite? (only if we did not already warn
   # for negative variances)
-  if (!var_na && var_lv_ok &&
-      length(lav_object_vnames(lavpartable, type = "lv.regular")) > 0L) {
-    eta <- lavTech(object, "cov.lv")
-    for (g in 1:lavdata@ngroups) {
-      if (nrow(eta[[g]]) == 0L) next
-      txt_group <- if (lavdata@ngroups > 1L) gettextf("in group %s", g) else ""
-      eigvals <- eigen(eta[[g]], symmetric = TRUE, only.values = TRUE)$values
+  if (!var_na && var_ov_ok && var_lv_ok) {
+    # keep the dummy lv's: residual covariances among observed endogenous
+    # variables live in psi, not in theta, and are dropped from cov.lv
+    eta <- lav_model_veta(lavmodel, remove_dummy_lv = FALSE)
+    for (b in seq_along(eta)) {
+      if (nrow(eta[[b]]) == 0L) next
+      txt_block <- if (length(eta) > 1L) {
+        gettextf("in block %s", lavdata@block.label[b])
+      } else ""
+      eigvals <- eigen(eta[[b]], symmetric = TRUE, only.values = TRUE)$values
       if (any(eigvals < -1 * .Machine$double.eps^(3 / 4))) {
         lav_msg_warn(gettextf(
           "covariance matrix of latent variables is not positive definite %s;
-          use lavInspect(fit, \"cov.lv\") to investigate.", txt_group
+          use lavInspect(fit, \"est\")$psi to investigate.", txt_block
         ))
         result_ok <- FALSE
       }
@@ -55,12 +58,13 @@ lav_object_post_check <- function(object) {
   # and if we have not already warned for negative ov variances
   if (!var_na && var_ov_ok) {
     mm_theta <- lavTech(object, "theta")
-    for (g in 1:lavdata@ngroups) {
-      num_idx <- lavmodel@num.idx[[g]]
+    for (b in seq_along(mm_theta)) {
+      num_idx <- lavmodel@num.idx[[b]]
       if (length(num_idx) > 0L) {
-        txt_group <- ""
-        if (lavdata@ngroups > 1L) txt_group <- gettextf("in group %s", g)
-        eigvals <- eigen(mm_theta[[g]][num_idx, num_idx, drop = FALSE],
+        txt_block <- if (length(mm_theta) > 1L) {
+          gettextf("in block %s", lavdata@block.label[b])
+        } else ""
+        eigvals <- eigen(mm_theta[[b]][num_idx, num_idx, drop = FALSE],
           symmetric = TRUE,
           only.values = TRUE
         )$values
@@ -68,7 +72,7 @@ lav_object_post_check <- function(object) {
           lav_msg_warn(gettextf(
             "the covariance matrix of the residuals of the observed variables
             (theta) is not positive definite %s; use lavInspect(fit, \"theta\")
-            to investigate.", txt_group))
+            to investigate.", txt_block))
           result_ok <- FALSE
         }
       }
