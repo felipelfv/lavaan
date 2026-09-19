@@ -452,9 +452,15 @@ sam <- function(model = NULL,
         for (g in seq_len(fit@Data@ngroups)) { # group or block
           # initial Gamma.eta
           gamma_eta_init <- step1$COV.IVETA2[[g]]
-          # compute 'additional variability' due to step1
+          # compute 'additional variability' due to step1; when the joint
+          # casewise Gamma.eta is available (cross term included), it
+          # already contains the COV.IVETA2 part
           gamma_eta_add <- lav_sam_gamma_add(step1 = step1, fit = fit, group = g)
-          gamma_eta[[g]] <- gamma_eta_init + gamma_eta_add
+          if (isTRUE(attr(gamma_eta_add, "joint"))) {
+            gamma_eta[[g]] <- gamma_eta_add
+          } else {
+            gamma_eta[[g]] <- gamma_eta_init + gamma_eta_add
+          }
         }
       } else if (fit@Data@nlevels > 1L) {
         # two-level: Gamma.eta per level (one entry per pseudo-group of the

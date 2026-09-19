@@ -1097,6 +1097,8 @@ lav_sam_veta2 <- function(fs = NULL, m = NULL,
   }
   if (return_cov_iveta2) {
     attr(veta2, "cov.iveta2") <- cov_iveta2
+    # the casewise contributions themselves (see lav_sam_gamma_add())
+    attr(veta2, "iveta2") <- iveta2_1
   }
 
   veta2

@@ -249,6 +249,7 @@ lav_sam_step1_local <- function(step1 = NULL, fit = NULL, y = NULL,
   fs_mean    <- vector("list", nblocks)
   fs         <- vector("list", nblocks)
   cov_iveta2 <- vector("list", nblocks)
+  iveta2     <- vector("list", nblocks)
   rel        <- vector("list", nblocks)
   alpha      <- vector("list", nblocks)
   lambda     <- vector("list", nblocks)
@@ -664,6 +665,7 @@ lav_sam_step1_local <- function(step1 = NULL, fit = NULL, y = NULL,
         }
         if (return_cov_iveta2) {
           cov_iveta2[[b]] <- attr(tmp, "cov.iveta2")
+          iveta2[[b]] <- attr(tmp, "iveta2")
           if (mi_flag && nrow(fs_b) < n_all) {
             # the casewise contributions cover the scoreable cases only;
             # Var(stat) = Gamma.eff / n.eff, while step 2 consumes the NACOV
@@ -698,6 +700,7 @@ lav_sam_step1_local <- function(step1 = NULL, fit = NULL, y = NULL,
     names(fs_mean)    <- fit@Data@block.label
     names(fs)         <- fit@Data@block.label
     names(cov_iveta2) <- fit@Data@block.label
+    names(iveta2)     <- fit@Data@block.label
   }
 
   # handle conditional.x: add res.slopes, cov.x and mean.x
@@ -777,6 +780,7 @@ lav_sam_step1_local <- function(step1 = NULL, fit = NULL, y = NULL,
   step1$FS.mean  <- fs_mean
   step1$FS       <- fs
   step1$COV.IVETA2 <- cov_iveta2
+  step1$IVETA2     <- iveta2
   step1$LV.NAMES <- lv_names_1
   # store also sam.method and local.options
   step1$sam.method <- sam_method
@@ -2672,6 +2676,56 @@ lav_sam_gamma_add <- function(step1 = NULL, fit = NULL, group = 1L,
   # consumes the NACOV on the full-N scale, so we scale by n_full (equal to
   # n unless unscoreable cases were removed above)
   gamma_addition <- n_full * (cveta %*% step1$Sigma.11 %*% t(cveta))
+
+  # joint casewise Gamma.eta: the sampling variability of the structural
+  # statistics has two sources, the casewise moment contributions l_i (whose
+  # covariance is COV.IVETA2) and the step-1 estimates, whose influence on
+  # case i is psi_i = I^-1 score_i. Both come from the same cases, so their
+  # covariance (the cross term) is part of Var(l_i + cveta psi_i); the sum
+  # COV.IVETA2 + gamma_addition drops it, and the cross term is nonzero when
+  # the intercepts are free with the factor means fixed at zero (nu-hat =
+  # ybar carries the factor scores). Assemble u_i = (l_i - lbar) + cveta psi_i
+  # and return Gamma.eta = (1/n) sum_i u_i u_i' (as lav_sam_gamma_eta_pml()
+  # does), flagged so that the caller does not add COV.IVETA2 again. Only
+  # for the clean setting: complete data, no std.lv, no dummy lvs, no
+  # equality constraints across the step-1 parameters.
+  iveta2 <- step1$IVETA2[[g]]
+  joint_ok <- !mi_flag && !std_lv_flag && length(dummy_ov_idx) == 0L &&
+    !is.null(iveta2) && nrow(iveta2) == n &&
+    !any(duplicated(pt_1$free[step1_idx]))
+  if (joint_ok) {
+    h <- matrix(0, n, length(step1_idx))
+    covered <- integer(0L)
+    for (mm in seq_along(step1$MM.FIT)) {
+      fb <- step1$MM.FIT[[mm]]
+      ptm <- fb@ParTable
+      ptm_idx <- step1$block.ptm.idx[[mm]]
+      ok <- ptm$free[ptm_idx] > 0L
+      rows_mm <- step1$block.mm.idx[[mm]][ptm_idx][ok]
+      cols_mm <- ptm$free[ptm_idx][ok]
+      # the blocks are fitted with bounds, represented as inactive inequality
+      # constraints; do not project the scores onto them
+      scb <- try(lav_sc(fb, remove_empty_cases = FALSE,
+                        ignore_constraints = TRUE), silent = TRUE)
+      if (inherits(scb, "try-error") || nrow(scb) != n) {
+        joint_ok <- FALSE
+        break
+      }
+      scb[is.na(scb)] <- 0
+      ib <- lavTech(fb, "information")
+      nb <- fb@SampleStats@ntotal
+      hb <- (n / nb) * scb %*% solve(ib)
+      h[, match(rows_mm, step1_idx)] <- hb[, cols_mm, drop = FALSE]
+      covered <- c(covered, rows_mm)
+    }
+    if (joint_ok && all(step1_idx %in% covered)) {
+      u <- t(t(iveta2) - colMeans(iveta2)) + h %*% t(cveta)
+      gamma_joint <- crossprod(u) / n
+      attr(gamma_joint, "joint") <- TRUE
+      return(gamma_joint)
+    }
+  }
+
   gamma_addition
 }
 
