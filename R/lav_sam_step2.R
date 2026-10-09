@@ -80,6 +80,15 @@ lav_sam_step2 <- function(step1 = NULL, fit = NULL,
   if (!is.null(struc_args$test)) {
     lavoptions_pa$test <- lav_test_rename(struc_args$test)
   }
+  if (!is.null(struc_args$scaled.test)) {
+    sb <- lavoptions_pa$scaled.test <- lav_test_rename(struc_args$scaled.test,
+                                                       check = TRUE)
+    # the base statistic must be computed, as lav_options_set() does, but
+    # only when Gamma.eta is available, otherwise the scaled tests are dropped
+    if (gamma_flag && !sb %in% c("standard", "default")) {
+      lavoptions_pa$test <- unique(c(sb, lavoptions_pa$test))
+    }
+  }
 
   # the corrected adjusted tests (Hayakawa 2018) need the casewise rows
   # behind Gamma.eta, which the moments-only structural fit does not have:
